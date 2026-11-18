@@ -36,6 +36,69 @@ pub(super) enum HomeMenu {
 }
 
 impl Launcher {
+    /// Camada de estrelas caindo do céu atrás do conteúdo do Home. Cada estrela tem
+    /// posição horizontal, tamanho, velocidade, atraso e deriva lateral próprios,
+    /// derivados deterministicamente do índice (sem `rand`), e repete o ciclo ao sair.
+    fn falling_stars() -> Div {
+        const COUNT: usize = 32;
+
+        let mut field = div().relative().size_full();
+
+        for i in 0..COUNT {
+            // Sementes espalhadas: cada estrela cai num ritmo e lugar diferentes.
+            let seed = (i as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15);
+
+            let x_frac = ((seed >> 8) & 0xFFFF) as f32 / 65535.0;
+            let size = 1.4 + ((seed >> 24) & 0x3) as f32 * 0.9;
+            let duration_ms = 2200 + ((seed >> 32) & 0x7FF) as u64;
+            let delay_ms = (seed >> 40) & 0xFFF;
+            let drift = (((seed >> 16) & 0xFF) as f32 / 255.0 - 0.5) * 60.0;
+
+            let anim = gpui::Animation::new(std::time::Duration::from_millis(duration_ms))
+                .easing(|t| t)
+                .with_delay(std::time::Duration::from_millis(delay_ms))
+                .repeat();
+
+            field = field.child(
+                div()
+                    .absolute()
+                    .left(gpui::relative(x_frac))
+                    .with_animation(
+                        gpui::ElementId::named_usize("falling-star", i),
+                        anim,
+                        move |el, delta| {
+                            // Fade-in no topo, fade-out antes de sumir na base.
+                            let alpha = if delta < 0.08 {
+                                delta / 0.08
+                            } else if delta > 0.9 {
+                                (1.0 - delta) / 0.1
+                            } else {
+                                1.0
+                            };
+                            el.top(gpui::relative(-0.05 + delta * 1.1))
+                                .ml(px(drift * delta))
+                                .opacity(alpha.clamp(0.0, 1.0))
+                                .child(
+                                    div()
+                                        .size(px(size))
+                                        .rounded(px(size / 2.0))
+                                        .bg(gpui::white())
+                                        .shadow(vec![gpui::BoxShadow {
+                                            color: gpui::white().opacity(0.55),
+                                            offset: gpui::point(px(0.), px(0.)),
+                                            blur_radius: px(4.),
+                                            spread_radius: px(0.5),
+                                            inset: false,
+                                        }]),
+                                )
+                        },
+                    ),
+            );
+        }
+
+        field
+    }
+
     /// The head: what Home shows above its tabs. `tag`: the Horizon version it plays (empty for a
     /// Java instance); `prepared`: whether that version's files are ready.
     pub(super) fn glass_home_head(
@@ -111,25 +174,39 @@ impl Launcher {
                 .child(self.glass_join_friend(tag, false, cx))
         };
         div()
-            .flex()
-            .flex_col()
-            .min_w_0()
-            .pt(px(64. - crate::glass::CONTENT_INSET))
-            .child(motion::enter(
-                ElementId::named_usize("home-title", self.switches),
-                1,
-                self.home_title(cx),
-            ))
-            .child(motion::enter(
-                ElementId::named_usize("home-status", self.switches),
-                2,
-                self.played_text(cx),
-            ))
-            .child(motion::enter(
-                ElementId::named_usize("home-actions", self.switches),
-                3,
-                actions,
-            ))
+            // ✨ Estrelas caindo atrás do conteúdo (não capturam cliques).
+            .relative()
+            .child(
+                div()
+                    .absolute()
+                    .top(px(0.))
+                    .left(px(0.))
+                    .size_full()
+                    .overflow_hidden()
+                    .child(Self::falling_stars()),
+            )
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .min_w_0()
+                    .pt(px(64. - crate::glass::CONTENT_INSET))
+                    .child(motion::enter(
+                        ElementId::named_usize("home-title", self.switches),
+                        1,
+                        self.home_title(cx),
+                    ))
+                    .child(motion::enter(
+                        ElementId::named_usize("home-status", self.switches),
+                        2,
+                        self.played_text(cx),
+                    ))
+                    .child(motion::enter(
+                        ElementId::named_usize("home-actions", self.switches),
+                        3,
+                        actions,
+                    )),
+            )
     }
 
     /// The edition switch over the rail, in the top bar where Horizon's mark was: Horizon's mark
